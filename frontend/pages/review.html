@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anonymous Review — CampusReview</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="review-wrap">
+    <div class="review-card" id="card">
+      <p>Loading…</p>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    const token = location.pathname.split("/").pop();
+    const card = document.getElementById("card");
+    let questions = [];
+
+    async function load() {
+      try {
+        const f = await api(`/api/public/form/${token}`);
+        questions = f.questions;
+        render(f);
+      } catch (e) {
+        card.innerHTML = `<h1>Unavailable</h1><p class="desc">${esc(e.message)}</p>`;
+      }
+    }
+
+    function render(f) {
+      const qs = f.questions.map(q => questionHTML(q)).join("");
+      card.innerHTML = `
+        <h1>${esc(f.title)}</h1>
+        <p class="desc">${esc(f.description || "")}</p>
+        <p class="desc"><i>Your response is fully anonymous.</i></p>
+        <form id="rev">${qs}
+          <button class="btn" type="submit" style="margin-top:14px">Submit Review</button>
+        </form>`;
+      document.getElementById("rev").addEventListener("submit", submit);
+    }
+
+    function questionHTML(q) {
+      const req = q.required ? '<span class="req">*</span>' : "";
+      const opts = (q.options || "").split("|").filter(Boolean);
+      let body = "";
+      if (q.qtype === "short")
+        body = `<input data-q="${q.id}" data-t="short">`;
+      else if (q.qtype === "long")
+        body = `<textarea data-q="${q.id}" data-t="long" rows="3"></textarea>`;
+      else if (q.qtype === "yesno")
+        body = ["Yes","No"].map(o => `
+          <div class="opt-line"><input type="radio" name="q${q.id}" value="${o}" data-q="${q.id}" data-t="radio"> ${o}</div>`).join("");
+      else if (q.qtype === "radio")
+        body = opts.map(o => `
+          <div class="opt-line"><input type="radio" name="q${q.id}" value="${esc(o)}" data-q="${q.id}" data-t="radio"> ${esc(o)}</div>`).join("");
+      else if (q.qtype === "checkbox")
+        body = opts.map(o => `
+          <div class="opt-line"><input type="checkbox" value="${esc(o)}" data-q="${q.id}" data-t="checkbox"> ${esc(o)}</div>`).join("");
+      else if (q.qtype === "rating")
+        body = `<div class="rating-stars" data-q="${q.id}" data-t="rating">
+          ${[1,2,3,4,5].map(n => `<button type="button" data-v="${n}">${n}</button>`).join("")}
+        </div>`;
+      return `<div class="q-block"><div class="qlabel">${esc(q.label)}${req}</div>${body}</div>`;
+    }
+
+    // Rating click handler (delegated)
+    document.addEventListener("click", e => {
+      const btn = e.target.closest(".rating-stars button");
+      if (!btn) return;
+      const wrap = btn.parentElement;
+      [...wrap.children].forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      wrap.dataset.value = btn.dataset.v;
+    });
+
+    function collect() {
+      const out = {};
+      questions.forEach(q => {
+        if (q.qtype === "short" || q.qtype === "long") {
+          const el = document.querySelector(`[data-q="${q.id}"][data-t="${q.qtype}"]`);
+          out[q.id] = el ? el.value.trim() : "";
+        } else if (q.qtype === "yesno" || q.qtype === "radio") {
+          const sel = document.querySelector(`input[name="q${q.id}"]:checked`);
+          out[q.id] = sel ? sel.value : "";
+        } else if (q.qtype === "checkbox") {
+          const sels = document.querySelectorAll(`input[type=checkbox][data-q="${q.id}"]:checked`);
+          out[q.id] = [...sels].map(s => s.value);
+        } else if (q.qtype === "rating") {
+          const wrap = document.querySelector(`.rating-stars[data-q="${q.id}"]`);
+          out[q.id] = wrap?.dataset.value || "";
+        }
+      });
+      return out;
+    }
+
+    async function submit(e) {
+      e.preventDefault();
+      try {
+        await api(`/api/public/form/${token}`, { method: "POST", body: { answers: collect() } });
+        card.innerHTML = `<h1>Thank you!</h1><p class="desc">Your anonymous review has been submitted.</p>`;
+      } catch (err) { toast(err.message, "error"); }
+    }
+
+    load();
+  </script>
+</body>
+</html>

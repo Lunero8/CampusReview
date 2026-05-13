@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin — CampusReview</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h2>CampusReview</h2>
+      <a data-section="sec-overview" class="active" onclick="showSection('sec-overview')">Overview</a>
+      <a data-section="sec-users" onclick="showSection('sec-users'); loadUsers()">Users</a>
+      <a data-section="sec-forms" onclick="showSection('sec-forms'); loadAllForms()">All Forms</a>
+      <a data-section="sec-logs" onclick="showSection('sec-logs'); loadLogs()">Activity Logs</a>
+      <a class="logout" onclick="logout()">Logout</a>
+    </aside>
+
+    <main class="main">
+      <!-- ==== Overview ==== -->
+      <section id="sec-overview" class="section active">
+        <h1>Admin Dashboard</h1>
+        <div class="stats" id="stats"></div>
+      </section>
+
+      <!-- ==== Users ==== -->
+      <section id="sec-users" class="section">
+        <h1>Users
+          <button class="btn small" style="float:right" onclick="openCreateUser()">+ New User</button>
+        </h1>
+        <div class="card">
+          <h2>Admins</h2>
+          <table id="admins-table"><thead><tr>
+            <th>ID</th><th>Username</th><th>Status</th><th>Created</th><th>Actions</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+        <div class="card">
+          <h2>Department Heads</h2>
+          <table id="heads-table"><thead><tr>
+            <th>ID</th><th>Username</th><th>Name</th><th>Department</th><th>Status</th><th>Actions</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- ==== Forms ==== -->
+      <section id="sec-forms" class="section">
+        <h1>All Review Forms</h1>
+        <div class="card">
+          <table id="all-forms-table"><thead><tr>
+            <th>Title</th><th>Owner</th><th>Department</th><th>Submissions</th><th>Expires</th><th>Link</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+
+      <!-- ==== Logs ==== -->
+      <section id="sec-logs" class="section">
+        <h1>Activity Logs</h1>
+        <div class="card">
+          <table id="logs-table"><thead><tr>
+            <th>When</th><th>Role</th><th>User</th><th>Action</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ==== User modal ==== -->
+  <div class="modal-bg" id="user-modal">
+    <div class="modal">
+      <h2 id="user-modal-title">New User</h2>
+      <div class="field"><label>Role</label>
+        <select id="u-role"><option value="admin">Admin</option><option value="head">Department Head</option></select>
+      </div>
+      <div class="field"><label>Username</label><input id="u-username"></div>
+      <div class="field"><label>Password (leave blank when editing to keep)</label><input id="u-password" type="password"></div>
+      <div id="u-head-fields">
+        <div class="field"><label>Full Name</label><input id="u-fullname"></div>
+        <div class="field"><label>Department</label><input id="u-dept"></div>
+      </div>
+      <div class="actions">
+        <button class="btn secondary" onclick="closeModal('user-modal')">Cancel</button>
+        <button class="btn" id="u-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    // Make sure we are logged in as admin
+    (async () => {
+      const me = await api("/api/me");
+      if (!me.loggedIn || me.role !== "admin") { window.location.href = "/login"; return; }
+      loadOverview();
+    })();
+
+    function openModal(id) { document.getElementById(id).classList.add("open"); }
+    function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+
+    // ---- Overview ----
+    async function loadOverview() {
+      const a = await api("/api/admin/analytics");
+      const s = document.getElementById("stats");
+      const items = [
+        ["Total Forms", a.total_forms],
+        ["Active Forms", a.active_forms],
+        ["Expired Forms", a.expired_forms],
+        ["Submissions", a.total_submissions],
+        ["Admins", a.total_admins],
+        ["Dept. Heads", a.total_heads],
+        ["Avg Rating", a.average_rating ?? "—"],
+      ];
+      s.innerHTML = items.map(([l, v]) =>
+        `<div class="stat"><div class="num">${esc(v)}</div><div class="lbl">${esc(l)}</div></div>`).join("");
+    }
+
+    // ---- Users ----
+    let editingUser = null;
+    async function loadUsers() {
+      const u = await api("/api/admin/users");
+      document.querySelector("#admins-table tbody").innerHTML = u.admins.map(a => `
+        <tr>
+          <td>${a.id}</td><td>${esc(a.username)}</td>
+          <td>${a.blocked ? "Blocked" : "Active"}</td>
+          <td>${esc((a.created_at||"").slice(0,10))}</td>
+          <td class="row-actions">
+            <button class="btn small secondary" onclick='openEditUser("admin", ${a.id}, ${JSON.stringify(a)})'>Edit</button>
+            <button class="btn small ${a.blocked?"success":"secondary"}" onclick="toggleBlock('admin', ${a.id}, ${a.blocked?0:1})">${a.blocked?"Unblock":"Block"}</button>
+            <button class="btn small danger" onclick="deleteUser('admin', ${a.id})">Delete</button>
+          </td>
+        </tr>`).join("");
+      document.querySelector("#heads-table tbody").innerHTML = u.heads.map(h => `
+        <tr>
+          <td>${h.id}</td><td>${esc(h.username)}</td><td>${esc(h.full_name)}</td>
+          <td>${esc(h.department)}</td>
+          <td>${h.blocked ? "Blocked" : "Active"}</td>
+          <td class="row-actions">
+            <button class="btn small secondary" onclick='openEditUser("head", ${h.id}, ${JSON.stringify(h)})'>Edit</button>
+            <button class="btn small ${h.blocked?"success":"secondary"}" onclick="toggleBlock('head', ${h.id}, ${h.blocked?0:1})">${h.blocked?"Unblock":"Block"}</button>
+            <button class="btn small danger" onclick="deleteUser('head', ${h.id})">Delete</button>
+          </td>
+        </tr>`).join("");
+    }
+
+    function openCreateUser() {
+      editingUser = null;
+      document.getElementById("user-modal-title").textContent = "New User";
+      document.getElementById("u-role").disabled = false;
+      document.getElementById("u-role").value = "head";
+      document.getElementById("u-username").value = "";
+      document.getElementById("u-password").value = "";
+      document.getElementById("u-fullname").value = "";
+      document.getElementById("u-dept").value = "";
+      toggleHeadFields();
+      openModal("user-modal");
+    }
+    function openEditUser(role, id, data) {
+      editingUser = { role, id };
+      document.getElementById("user-modal-title").textContent = "Edit User";
+      document.getElementById("u-role").value = role;
+      document.getElementById("u-role").disabled = true;
+      document.getElementById("u-username").value = data.username || "";
+      document.getElementById("u-password").value = "";
+      document.getElementById("u-fullname").value = data.full_name || "";
+      document.getElementById("u-dept").value = data.department || "";
+      toggleHeadFields();
+      openModal("user-modal");
+    }
+    function toggleHeadFields() {
+      document.getElementById("u-head-fields").style.display =
+        document.getElementById("u-role").value === "head" ? "block" : "none";
+    }
+    document.getElementById("u-role").addEventListener("change", toggleHeadFields);
+
+    document.getElementById("u-save").addEventListener("click", async () => {
+      const role = document.getElementById("u-role").value;
+      const username = document.getElementById("u-username").value.trim();
+      const password = document.getElementById("u-password").value;
+      const full_name = document.getElementById("u-fullname").value.trim();
+      const department = document.getElementById("u-dept").value.trim();
+      try {
+        if (editingUser) {
+          const body = { username };
+          if (password) body.password = password;
+          if (role === "head") { body.full_name = full_name; body.department = department; }
+          await api(`/api/admin/users/${editingUser.role}/${editingUser.id}`, { method: "PUT", body });
+        } else {
+          const body = { role, username, password };
+          if (role === "head") { body.full_name = full_name; body.department = department; }
+          await api("/api/admin/users", { method: "POST", body });
+        }
+        toast("Saved", "ok"); closeModal("user-modal"); loadUsers();
+      } catch (e) { toast(e.message, "error"); }
+    });
+
+    async function toggleBlock(role, id, blocked) {
+      try { await api(`/api/admin/users/${role}/${id}`, { method: "PUT", body: { blocked } });
+        toast("Updated", "ok"); loadUsers(); }
+      catch (e) { toast(e.message, "error"); }
+    }
+    async function deleteUser(role, id) {
+      if (!confirm("Delete this user?")) return;
+      try { await api(`/api/admin/users/${role}/${id}`, { method: "DELETE" });
+        toast("Deleted", "ok"); loadUsers(); }
+      catch (e) { toast(e.message, "error"); }
+    }
+
+    // ---- All forms ----
+    async function loadAllForms() {
+      const r = await api("/api/admin/forms");
+      document.querySelector("#all-forms-table tbody").innerHTML = r.forms.map(f => {
+        const link = `${location.origin}/review/${f.token}`;
+        return `<tr>
+          <td>${esc(f.title)}</td>
+          <td>${esc(f.owner || "—")}</td>
+          <td>${esc(f.department || "—")}</td>
+          <td>${f.submission_count}</td>
+          <td>${esc((f.expires_at||"—").slice(0,16))}</td>
+          <td><a href="${link}" target="_blank">Open</a></td>
+        </tr>`;
+      }).join("");
+    }
+
+    // ---- Logs ----
+    async function loadLogs() {
+      const r = await api("/api/admin/logs");
+      document.querySelector("#logs-table tbody").innerHTML = r.logs.map(l => `
+        <tr>
+          <td>${esc((l.created_at||"").replace("T"," ").slice(0,19))}</td>
+          <td>${esc(l.actor_role)}</td>
+          <td>${l.actor_id ?? "—"}</td>
+          <td>${esc(l.action)}</td>
+        </tr>`).join("");
+    }
+  </script>
+</body>
+</html>

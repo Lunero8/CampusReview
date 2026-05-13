@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CampusReview — Login</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <h1>CampusReview</h1>
+      <p class="sub">Sign in to continue</p>
+
+      <form id="login-form">
+        <div class="field">
+          <label>Role</label>
+          <select id="role">
+            <option value="admin">Admin</option>
+            <option value="head">Department Head</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Username</label>
+          <input id="username" required>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input id="password" type="password" required>
+        </div>
+        <button class="btn" type="submit" style="width:100%">Sign In</button>
+      </form>
+
+      <p class="sub" style="margin-top:16px; text-align:center;">
+        Default admin: <b>admin</b> / <b>admin123</b>
+      </p>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const role = document.getElementById("role").value;
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      try {
+        const res = await api("/api/login", {
+          method: "POST",
+          body: { role, username, password },
+        });
+        toast("Welcome!", "ok");
+        window.location.href = res.role === "admin" ? "/admin" : "/head";
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  </script>
+</body>
+</html>

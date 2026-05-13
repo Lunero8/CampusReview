@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Department Head — CampusReview</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h2>CampusReview</h2>
+      <a data-section="sec-overview" class="active" onclick="showSection('sec-overview'); loadOverview()">Overview</a>
+      <a data-section="sec-forms" onclick="showSection('sec-forms'); loadForms()">My Forms</a>
+      <a data-section="sec-builder" onclick="showSection('sec-builder'); newForm()">Create Form</a>
+      <a data-section="sec-profile" onclick="showSection('sec-profile')">Profile</a>
+      <a class="logout" onclick="logout()">Logout</a>
+    </aside>
+
+    <main class="main">
+      <!-- Overview -->
+      <section id="sec-overview" class="section active">
+        <h1>Welcome, <span id="me-name">…</span></h1>
+        <div class="stats" id="stats"></div>
+      </section>
+
+      <!-- My forms -->
+      <section id="sec-forms" class="section">
+        <h1>My Forms <button class="btn small" style="float:right" onclick="showSection('sec-builder'); newForm()">+ New Form</button></h1>
+        <div class="card">
+          <table id="forms-table"><thead><tr>
+            <th>Title</th><th>Submissions</th><th>Expires</th><th>Link</th><th>Actions</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+        <div id="responses-card" class="card" style="display:none">
+          <h2 id="responses-title">Responses</h2>
+          <div id="responses-content"></div>
+        </div>
+      </section>
+
+      <!-- Form builder -->
+      <section id="sec-builder" class="section">
+        <h1 id="builder-title">Create Form</h1>
+        <div class="card">
+          <div class="field"><label>Title</label><input id="f-title"></div>
+          <div class="field"><label>Description</label><textarea id="f-desc" rows="2"></textarea></div>
+          <div class="field"><label>Expires at (optional)</label><input id="f-expires" type="datetime-local"></div>
+          <h2 style="margin-top:10px">Questions</h2>
+          <div id="questions"></div>
+          <button class="btn secondary small" onclick="addQuestion()">+ Add question</button>
+          <div style="margin-top:18px">
+            <button class="btn" onclick="saveForm()">Save Form</button>
+            <button class="btn secondary" onclick="showSection('sec-forms'); loadForms()">Cancel</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Profile -->
+      <section id="sec-profile" class="section">
+        <h1>Profile</h1>
+        <div class="card">
+          <h2>Update Profile</h2>
+          <div class="field"><label>Full name</label><input id="p-name"></div>
+          <div class="field"><label>Department</label><input id="p-dept"></div>
+          <button class="btn" onclick="saveProfile()">Save</button>
+        </div>
+        <div class="card">
+          <h2>Change Password</h2>
+          <div class="field"><label>Old password</label><input id="p-old" type="password"></div>
+          <div class="field"><label>New password</label><input id="p-new" type="password"></div>
+          <button class="btn" onclick="changePassword()">Update Password</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    let ME = null;
+    let editingFormId = null;
+
+    (async () => {
+      try {
+        const me = await api("/api/me");
+        if (!me.loggedIn || me.role !== "head") { window.location.href = "/login"; return; }
+        ME = me;
+        document.getElementById("me-name").textContent = me.full_name || me.username;
+        document.getElementById("p-name").value = me.full_name || "";
+        document.getElementById("p-dept").value = me.department || "";
+        loadOverview();
+      } catch (e) { window.location.href = "/login"; }
+    })();
+
+    // ---- Overview ----
+    async function loadOverview() {
+      const a = await api("/api/head/analytics");
+      const items = [
+        ["My Forms", a.total_forms],
+        ["Active", a.active_forms],
+        ["Expired", a.expired_forms],
+        ["Submissions", a.total_submissions],
+        ["Avg Rating", a.average_rating ?? "—"],
+      ];
+      document.getElementById("stats").innerHTML = items.map(([l,v]) =>
+        `<div class="stat"><div class="num">${esc(v)}</div><div class="lbl">${esc(l)}</div></div>`).join("");
+    }
+
+    // ---- Forms list ----
+    async function loadForms() {
+      document.getElementById("responses-card").style.display = "none";
+      const r = await api("/api/head/forms");
+      document.querySelector("#forms-table tbody").innerHTML = r.forms.map(f => {
+        const link = `${location.origin}/review/${f.token}`;
+        return `<tr>
+          <td>${esc(f.title)}</td>
+          <td>${f.submission_count}</td>
+          <td>${esc((f.expires_at||"—").slice(0,16))}</td>
+          <td><a href="${link}" target="_blank">Open</a>
+              <button class="btn small secondary" onclick="copyLink('${link}')">Copy</button></td>
+          <td class="row-actions">
+            <button class="btn small" onclick="viewResponses(${f.id}, '${esc(f.title)}')">Responses</button>
+            <button class="btn small secondary" onclick="editForm(${f.id})">Edit</button>
+            <button class="btn small danger" onclick="deleteForm(${f.id})">Delete</button>
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    function copyLink(l) { navigator.clipboard.writeText(l); toast("Link copied", "ok"); }
+
+    async function deleteForm(id) {
+      if (!confirm("Delete this form and all its responses?")) return;
+      try { await api(`/api/head/forms/${id}`, { method: "DELETE" });
+        toast("Deleted","ok"); loadForms(); }
+      catch (e) { toast(e.message,"error"); }
+    }
+
+    // ---- Builder ----
+    function newForm() {
+      editingFormId = null;
+      document.getElementById("builder-title").textContent = "Create Form";
+      document.getElementById("f-title").value = "";
+      document.getElementById("f-desc").value = "";
+      document.getElementById("f-expires").value = "";
+      document.getElementById("questions").innerHTML = "";
+      addQuestion();
+    }
+
+    function questionTemplate(q = {}) {
+      const id = "q" + Math.random().toString(36).slice(2,8);
+      return `
+        <div class="qrow" data-id="${id}">
+          <div class="top">
+            <input class="q-label" placeholder="Question text" value="${esc(q.label||"")}">
+            <select class="q-type">
+              ${["short","long","yesno","checkbox","radio","rating"].map(t =>
+                `<option value="${t}" ${q.qtype===t?"selected":""}>${t}</option>`).join("")}
+            </select>
+            <button class="btn small danger" onclick="this.closest('.qrow').remove()">×</button>
+          </div>
+          <div class="opt-wrap">
+            <input class="q-options" placeholder="Options separated by | (only for checkbox/radio)" value="${esc(q.options||"")}">
+          </div>
+          <div class="meta">
+            <label><input type="checkbox" class="q-required" ${q.required?"checked":""}> Required</label>
+          </div>
+        </div>`;
+    }
+    function addQuestion(q) {
+      document.getElementById("questions").insertAdjacentHTML("beforeend", questionTemplate(q));
+    }
+
+    function collectQuestions() {
+      return [...document.querySelectorAll("#questions .qrow")].map(row => ({
+        qtype: row.querySelector(".q-type").value,
+        label: row.querySelector(".q-label").value.trim(),
+        options: row.querySelector(".q-options").value.split("|").map(s=>s.trim()).filter(Boolean),
+        required: row.querySelector(".q-required").checked,
+      })).filter(q => q.label);
+    }
+
+    async function saveForm() {
+      const body = {
+        title: document.getElementById("f-title").value.trim(),
+        description: document.getElementById("f-desc").value.trim(),
+        expires_at: document.getElementById("f-expires").value || null,
+        questions: collectQuestions(),
+      };
+      if (!body.title) return toast("Title required","error");
+      if (body.questions.length === 0) return toast("Add at least one question","error");
+      try {
+        if (editingFormId) {
+          await api(`/api/head/forms/${editingFormId}`, { method: "PUT", body });
+        } else {
+          await api("/api/head/forms", { method: "POST", body });
+        }
+        toast("Saved","ok");
+        showSection("sec-forms"); loadForms();
+      } catch (e) { toast(e.message,"error"); }
+    }
+
+    async function editForm(id) {
+      const r = await api(`/api/head/forms/${id}/responses`);
+      editingFormId = id;
+      showSection("sec-builder");
+      document.getElementById("builder-title").textContent = "Edit Form";
+      document.getElementById("f-title").value = r.form.title;
+      document.getElementById("f-desc").value = r.form.description || "";
+      document.getElementById("f-expires").value = (r.form.expires_at || "").slice(0,16);
+      document.getElementById("questions").innerHTML = "";
+      r.questions.forEach(q => addQuestion({
+        qtype: q.qtype, label: q.label, options: q.options || "", required: !!q.required
+      }));
+    }
+
+    // ---- Responses ----
+    async function viewResponses(id, title) {
+      const r = await api(`/api/head/forms/${id}/responses`);
+      const card = document.getElementById("responses-card");
+      const content = document.getElementById("responses-content");
+      document.getElementById("responses-title").textContent = `Responses — ${title} (${r.submissions.length})`;
+
+      // Build per-question summaries
+      const summaries = r.questions.map(q => {
+        const vals = r.submissions.map(s => s.answers[q.id]).filter(v => v != null && v !== "");
+        if (q.qtype === "rating") {
+          const nums = vals.map(v => parseFloat(v)).filter(n => !isNaN(n));
+          const avg = nums.length ? (nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(2) : "—";
+          // bar chart of distribution 1..5
+          const dist = [1,2,3,4,5].map(n => nums.filter(x => Math.round(x)===n).length);
+          const max = Math.max(1, ...dist);
+          const bars = dist.map((c,i) =>
+            `<div class="bar-row"><div class="lbl">${i+1} star</div>
+              <div class="bar"><span style="width:${(c/max)*100}%"></span></div>
+              <div class="val">${c}</div></div>`).join("");
+          return `<div class="card"><h2>${esc(q.label)} — avg ${avg}</h2><div class="bars">${bars}</div></div>`;
+        }
+        if (["yesno","radio","checkbox"].includes(q.qtype)) {
+          const counts = {};
+          vals.forEach(v => v.split("|").forEach(x => { x=x.trim(); if(x) counts[x]=(counts[x]||0)+1; }));
+          const max = Math.max(1, ...Object.values(counts));
+          const bars = Object.entries(counts).map(([k,c]) =>
+            `<div class="bar-row"><div class="lbl">${esc(k)}</div>
+              <div class="bar"><span style="width:${(c/max)*100}%"></span></div>
+              <div class="val">${c}</div></div>`).join("") || "<i>No answers yet</i>";
+          return `<div class="card"><h2>${esc(q.label)}</h2><div class="bars">${bars}</div></div>`;
+        }
+        // text
+        const list = vals.length
+          ? vals.map(v => `<li>${esc(v)}</li>`).join("")
+          : "<i>No answers yet</i>";
+        return `<div class="card"><h2>${esc(q.label)}</h2><ul style="padding-left:20px">${list}</ul></div>`;
+      }).join("");
+
+      content.innerHTML = summaries || "<p>No questions yet.</p>";
+      card.style.display = "block";
+      card.scrollIntoView({ behavior: "smooth" });
+    }
+
+    // ---- Profile ----
+    async function saveProfile() {
+      try {
+        await api("/api/head/profile", { method: "PUT", body: {
+          full_name: document.getElementById("p-name").value.trim(),
+          department: document.getElementById("p-dept").value.trim(),
+        }});
+        toast("Profile updated","ok");
+      } catch (e) { toast(e.message,"error"); }
+    }
+    async function changePassword() {
+      try {
+        await api("/api/head/password", { method: "PUT", body: {
+          old_password: document.getElementById("p-old").value,
+          new_password: document.getElementById("p-new").value,
+        }});
+        document.getElementById("p-old").value = "";
+        document.getElementById("p-new").value = "";
+        toast("Password changed","ok");
+      } catch (e) { toast(e.message,"error"); }
+    }
+  </script>
+</body>
+</html>

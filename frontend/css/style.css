@@ -3,8 +3,8 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #f4f6fb;
-  --card: #ffffff;
+  --bg: #28cfcd;
+  --card: #a5b6b9;
   --text: #1f2937;
   --muted: #6b7280;
   --primary: #2563eb;
@@ -53,7 +53,7 @@ input, select, textarea {
   border-radius: var(--radius);
   font-size: 14px;
   font-family: inherit;
-  background: #fff;
+  background: #ffffff;
 }
 input:focus, select:focus, textarea:focus {
   outline: none;
@@ -73,7 +73,9 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
 }
 .auth-card h1 { margin-bottom: 6px; font-size: 22px; }
 .auth-card .sub { color: var(--muted); margin-bottom: 20px; font-size: 14px; }
-
+.sub {
+  text-align: center;
+}
 /* ---------- Dashboard layout ---------- */
 .app { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
 .sidebar {
